@@ -57,7 +57,7 @@ shift \$((OPTIND -1)) # Remove parsed options and args from $@
 # 1. Python Virtual Environment
 if [ -z "\$python_env_path" ]; then
   if [ -n "\$PYTHON_VENVS" ] && [ -d "\$PYTHON_VENVS" ]; then
-    selected_env_name=\$(find "\$PYTHON_VENVS" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | fzf --prompt="Select Python Virtual Environment: ")
+    selected_env_name=$(find "\$PYTHON_VENVS" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | fzf --prompt="Select Python Virtual Environment: ")
     if [ -n "\$selected_env_name" ]; then
       python_env_path="\$PYTHON_VENVS/\$selected_env_name/bin/python"
       if [ ! -x "\$python_env_path" ]; then
@@ -146,9 +146,9 @@ else
     fi
     
     # Sanitize parts
-    group=\$(echo "\$group" | sed 's/[^a-zA-Z0-9_]/_/g')
-    project=\$(echo "\$project" | sed 's/[^a-zA-Z0-9_]/_/g')
-    issue_iid=\$(echo "\$issue_iid" | sed 's/[^a-zA-Z0-9_]/_/g')
+    group=$(echo "\$group" | sed 's/[^a-zA-Z0-9_]/_/g')
+    project=$(echo "\$project" | sed 's/[^a-zA-Z0-9_]/_/g')
+    issue_iid=$(echo "\$issue_iid" | sed 's/[^a-zA-Z0-9_]/_/g')
 
     final_database_name="\${group}_\${project}_\${issue_iid}"
   else
@@ -177,14 +177,14 @@ if [ -z "\$odoo_config_file_path" ]; then
 
   # Check if ODOO_CONFIG_FILES resolves to any actual files
   # Using a subshell to avoid exiting the main script if find returns no results before fzf
-  config_file_list=\$(find "\$ODOO_CONFIG_FILES" -type f -print0)
+  config_file_list=$(find "\$ODOO_CONFIG_FILES" -type f -print0)
 
   if [ -z "\$config_file_list" ]; then
     echo "Error: No files found matching ODOO_CONFIG_FILES pattern: '\$ODOO_CONFIG_FILES'." >&2
     exit 1
   fi
   
-  selected_config=\$(echo "\$config_file_list" | fzf --read0 --prompt="Select Odoo Config File: ")
+  selected_config=$(echo "\$config_file_list" | fzf --read0 --prompt="Select Odoo Config File: ")
 
   if [ -z "\$selected_config" ]; then
     echo "No Odoo config file selected. Exiting." >&2
@@ -221,7 +221,7 @@ else
 
   if [ \${#addons_install_array[@]} -gt 0 ]; then
     # Join array elements with a comma
-    final_addons_to_install=\$(IFS=,; echo "\${addons_install_array[*]}")
+    final_addons_to_install=$(IFS=,; echo "\${addons_install_array[*]}")
   fi
 fi
 
@@ -244,6 +244,59 @@ elif [ -z "\$final_addons_to_install" ]; then # Only ask for update if no instal
 
   if [ \${#addons_update_array[@]} -gt 0 ]; then
     # Join array elements with a comma
-    final_addons_to_update=\$(IFS=,; echo "\${addons_update_array[*]}")
+    final_addons_to_update=$(IFS=,; echo "\${addons_update_array[*]}")
   fi
 fi
+
+# 7. Enable Tests
+if [ "\$test_enable_flag" = false ]; then # Check if -t flag was not used
+  read -r -p "Enable tests? (y/N): " enable_tests_input
+  if [[ "\$enable_tests_input" == "y" || "\$enable_tests_input" == "Y" ]]; then
+    test_enable_flag=true
+  fi
+fi
+
+# IV. Construct and Execute Odoo Command
+
+# 1. Odoo Executable Path (odoo_bin_path_final was determined in III.2)
+
+# 2. Command Array Initialization
+cmd_array=()
+if [ -n "\$python_env_path" ] && [ "\$python_env_path" != "python" ]; then
+  # If a virtual env python is specified, use it
+  cmd_array+=("\$python_env_path" "\$odoo_bin_path_final")
+else
+  # Otherwise, use 'python' (system python) and odoo_bin_path_final
+  # (This assumes odoo_bin_path_final is either absolute or findable in PATH if python_env_path is just 'python')
+  cmd_array+=("python" "\$odoo_bin_path_final")
+fi
+
+# 3. Append Arguments
+if [ -n "\$final_database_name" ]; then
+  cmd_array+=("-d" "\$final_database_name")
+fi
+
+if [ -n "\$odoo_config_file_path" ]; then
+  cmd_array+=("-c" "\$odoo_config_file_path")
+fi
+
+if [ -n "\$final_addons_to_install" ]; then
+  cmd_array+=("-i" "\$final_addons_to_install")
+elif [ -n "\$final_addons_to_update" ]; then # Only use -u if -i is not used
+  cmd_array+=("-u" "\$final_addons_to_update")
+fi
+
+if [ "\$test_enable_flag" = true ]; then
+  cmd_array+=("--test-enable" "--stop-after-init")
+fi
+
+# 4. Logging
+echo # Add a newline for better readability before the command
+echo "----------------------------------------------------------------------"
+echo "Running Odoo with the following command:"
+echo "\${cmd_array[*]}"
+echo "----------------------------------------------------------------------"
+echo # Add a newline for better readability after the command
+
+# 5. Execution
+exec "\${cmd_array[@]}"
